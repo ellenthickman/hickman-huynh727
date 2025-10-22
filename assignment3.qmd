@@ -1,5 +1,5 @@
 ---
-title: "Assignment 3"
+title: "Assignment 3- Resubmission with Github and QMD"
 author: "Mi Huynh & Ellen Hickman"
 subtitle: "Due at 11:59pm on October 14."
 format: pdf
