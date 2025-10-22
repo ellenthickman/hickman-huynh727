@@ -1,0 +1,235 @@
+---
+title: "Assignment 3"
+author: "Mi Huynh & Ellen Hickman"
+subtitle: "Due at 11:59pm on October 14."
+format: pdf
+editor: visual
+---
+
+You may work in pairs or individually for this assignment. Make sure you join a group in Canvas if you are working in pairs. Turn in this assignment as an HTML or PDF file to ELMS. Make sure to include the R Markdown or Quarto file that was used to generate it. Include the GitHub link for the repository containing these files.
+
+```{r, include = FALSE}
+library(xml2)
+library(rvest)
+library(tidyverse)
+library(robotstxt)
+```
+
+## Web Scraping
+
+In this assignment, your task is to scrape some information from Wikipedia. We start with the following page about Grand Boulevard, a Chicago Community Area.
+
+<https://en.wikipedia.org/wiki/Grand_Boulevard,_Chicago>
+
+The ultimate goal is to gather the table "Historical population" and convert it to a `data.frame`.
+
+As a first step, read in the html page as an R object. Extract the tables from this object (using the `rvest` package) and save the result as a new object. Follow the instructions if there is an error. Use `str()` on this new object -- it should be a list. Try to find the position of the "Historical population" in this list since we need it in the next step.
+
+Extract the "Historical population" table from the list and save it as another object. You can use subsetting via `[[…]]` to extract pieces from a list. Print the result.
+
+You will see that the table needs some additional formatting. Keep only want rows and columns with actual values.
+
+```{r Historical Populations}
+paths_allowed("https://en.wikipedia.org/wiki/Grand_Boulevard,_Chicago")
+wiki_html <- read_html("https://en.wikipedia.org/wiki/Grand_Boulevard,_Chicago")
+str(wiki_html)
+table <- wiki_html %>% html_table(fill = TRUE)
+hist_pop <- table[[2]]
+hist_pop <- hist_pop[-11, -3]
+hist_pop
+```
+
+## Expanding to More Pages
+
+That's it for this page. However, we may want to repeat this process for other community areas. The Wikipedia page <https://en.wikipedia.org/wiki/Grand_Boulevard,_Chicago> has a section on "Places adjacent to Grand Boulevard, Chicago" at the bottom. Can you find the corresponding table in the list of tables that you created earlier? Extract this table as a new object.
+
+```{r}
+place_adj <- table[[3]]
+place_adj <- place_adj[-c(1, 3, 5), -4:-17]
+place_adj
+```
+
+Then, grab the community areas east of Grand Boulevard and save them as a character vector. Print the result.
+
+```{r}
+colnames(place_adj) <- c("West", "North-South", "East")
+areas_east <- as.vector(place_adj$East)
+print(areas_east)
+```
+
+We want to use this list to create a loop that extracts the population tables from the Wikipedia pages of these places. To make this work and build valid urls, we need to replace empty spaces in the character vector with underscores. The resulting vector should look like this: "Oakland,\_Chicago" "Kenwood,\_Chicago" "Hyde_Park,\_Chicago"
+
+```{r}
+areas_east_urls <- gsub(" ", "_", areas_east) #Replace spaces with underscores
+print(areas_east_urls)
+```
+
+Build a loop to grab the population tables from each page. Add columns to the original table using `cbind()`.
+
+-   We used `rbind()` rather than `cbind()` since `cbind()` was inefficient compared to `merge` or `rbind()`. `rbind()` allows us to append rows, reducing column redundancy. In order to `cbind()`, we had to hard code the data instead of embedding in a loop, as shown below in the commented lines.
+
+```{r}
+base_url <- "https://en.wikipedia.org/wiki/"
+final_df <- data.frame()
+
+for(i in seq_along(areas_east_urls)) {
+  
+urls <- paste0(base_url, areas_east_urls[i])
+  wiki_htmls <- read_html(urls)
+  
+  tables <- html_nodes(wiki_htmls, xpath = '//*[contains(concat( " ", @class, " " ), concat( " ", "us-census-pop-right", " " ))]')
+  populations <- html_table(tables) %>%
+    as.data.frame() %>%
+    mutate(name = areas_east[i])
+  # oakland <- html_table(tables[1])
+  
+  final_df <- rbind(final_df, populations)
+}
+
+final_df <- final_df[c(-13, -24, -35), -3]
+final_df
+  
+
+# oakland <- all_tables[[1]][[1]]
+# oakland <- oakland[c(-1, -2, -13), -3] %>% mutate(name = "Oakland")
+# kenwood <- all_tables[[2]][[1]] %>% mutate(name = "Kenwood")
+# kenwood <- kenwood[-11, -3]
+# hyde_park <- all_tables[[3]][[1]] %>% mutate(name = "Hyde Park")
+# hyde_park <- hyde_park[-11, -3]
+# 
+# colnames(oakland) <- c("Year Oakland", "Population Oakland")
+# colnames(kenwood) <- c("Year Oakland", "Population Kenwood")
+# colnames(hyde_park) <- c("Year Oakland", "Population Hyde Park")
+#                         
+# populations <- cbind(hist_pop, oakland, kenwood, hyde_park, deparse.level = 2)
+```
+
+## Scraping and Analyzing Text Data
+
+Suppose we wanted to take the actual text from the Wikipedia pages instead of just the information in the table. Our goal in this section is to extract the text from the body of the pages, then do some basic text cleaning and analysis.
+
+First, scrape just the text without any of the information in the margins or headers. For example, for "Grand Boulevard", the text should start with, "**Grand Boulevard** on the [South Side](https://en.wikipedia.org/wiki/South_Side,_Chicago "South Side, Chicago") of [Chicago](https://en.wikipedia.org/wiki/Chicago "Chicago"), [Illinois](https://en.wikipedia.org/wiki/Illinois "Illinois"), is one of the ...". Make sure all of the text is in one block by using something like the code below (I called my object `description`).
+
+```{r}
+name <- html_elements(wiki_html, xpath = '//h1')
+name <- html_text(name)
+description <- html_elements(wiki_html, xpath = '//p') %>% html_text(trim = T)
+description <- description %>% paste(collapse = ' ')
+name
+description
+```
+
+Using a similar loop as in the last section, grab the descriptions of the various communities areas. Make a tibble with two columns: the name of the location and the text describing the location.
+
+```{r}
+base_url <- "https://en.wikipedia.org/wiki/"
+my_tibble <- tibble(
+  name = character(),
+  description = character()
+)
+
+for(i in seq_along(areas_east_urls)) {
+  urls <- paste0(base_url, areas_east_urls[i])
+  url_html <- read_html(urls)
+  name <- html_elements(url_html, xpath = '//h1') %>% html_text()
+  descriptions <- html_elements(url_html, xpath = '//p') %>% html_text(trim = TRUE) %>% paste(collapse = ' ')
+  
+  my_tibble1 <- tibble(name = name, description = descriptions)
+  my_tibble <- rbind(my_tibble, my_tibble1)
+}
+my_tibble
+```
+
+Let's clean the data using `tidytext`. If you have trouble with this section, see the example shown in <https://www.tidytextmining.com/tidytext.html>
+
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+install.packages('tidytext')
+library(tidytext)
+
+```
+
+Create tokens using `unnest_tokens`. Make sure the data is in one-token-per-row format. Remove any stop words within the data. What are the most common words used overall?
+
+-   The most common used words are "park", "hyde", and "chicago".
+
+```{r}
+my_text <- my_tibble %>%
+  unnest_tokens(word, description, token = "words")
+my_text <- my_text %>%
+  anti_join(stop_words) %>%
+  group_by(name) %>%
+  count(word, sort = TRUE) 
+  
+my_text
+```
+
+Plot the most common words within each location. What are some of the similarities between the locations? What are some of the differences?
+
+```{r}
+library(ggplot2)
+
+text_graph <- my_text %>%
+  mutate(word = reorder(word, n, decreasing = FALSE)) %>%
+  group_by(name) %>%
+  slice_max(n, n = 10) %>%
+  ggplot(aes(x = n, y = word, fill = name)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~name, scale = "free")
+text_graph
+```
+
+-   For Hyde Park, Kenwood, and Oakland, Chicago, the most common words in each location are associated with their names.
+
+-   The similarities between all 3 locations is "Chicago" and "street" being included in all 3. Hyde Park and Kenwood have more similar words compared to Oakland. This could suggest that Hyde Park and Kenwood may have more in common with each other than with Oakland.
+
+-   The differences are words such as "university", "lake", "housing", "avenue", "homes", and "votes".
+
+```{r trash, include = FALSE, eval = FALSE}
+
+# final_df <- data.frame()
+# 
+# for(i in seq_along(areas_east_urls)) {
+#   urls <- paste0(base_url, areas_east_urls[i])
+#   html_documents <- read_html(urls)
+#   tables <- html_nodes(html_documents,
+#                        xpath = '//*[contains(concat( " ", @class, " " ), concat( " ", "us-census-pop-right", " " ))]')
+#   tables <- html_table(tables) %>%
+#     
+# 
+#   
+#   if (length(tables) > 0) {
+#         all_tables[[i]] <- tables
+#       } else {
+#         all_tables[[i]] <- NULL # Or handle cases with no tables differently
+#       }
+# }
+
+# population_data <- as.data.frame(matrix(all_tables[[1]], ncol = 3, nrow = 1, byrow = T))
+# 
+# oakland <- all_tables[[1]][[1]]
+# oakland <- oakland[c(-1, -2, -13), -3] %>% mutate(name = "Oakland")
+# kenwood <- all_tables[[2]][[1]] %>% mutate(name = "Kenwood")
+# kenwood <- kenwood[-11, -3]
+# hyde_park <- all_tables[[3]][[1]] %>% mutate(name = "Hyde Park")
+# hyde_park <- hyde_park[-11, -3]
+# 
+# colnames(oakland) <- c("Year Oakland", "Population Oakland")
+# colnames(kenwood) <- c("Year Oakland", "Population Kenwood")
+# colnames(hyde_park) <- c("Year Oakland", "Population Hyde Park")
+                         
+# rbind(oakland, kenwood)
+# final_df <- data.frame()
+# for (i in  seq_along()) {
+#   final_df <- all_tables[[i]][[1]]
+# }
+
+# populations <- cbind(hist_pop, oakland, kenwood, hyde_park, deparse.level = 2)
+
+# oakland <- read_html("https://en.wikipedia.org/wiki/Oakland,_Chicago")
+# oakland <- html_table(oakland)
+# kenwood <- read_html("https://en.wikipedia.org/wiki/Kenwood,_Chicago")
+# kenwood <- html_table(kenwood)
+# hyde_park <- read(read_html("https://en.wikipedia.org/wiki/Hyde_Park,_Chicago"))
+
+```
