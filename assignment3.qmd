@@ -185,6 +185,20 @@ text_graph
 
 -   The differences are words such as "university", "lake", "housing", "avenue", "homes", and "votes".
 
+```{r Ellen}
+library(ggplot2)
+my_text %>%
+  group_by(name) %>%
+  slice_max(n, n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(word, n), y = n, fill = name)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~name, scales = "free") +
+  coord_flip() +
+  scale_x_reordered() +
+  labs(x = "Words", y = "Count", title = "Most Common Words by Location")
+```
+
 ```{r trash, include = FALSE, eval = FALSE}
 
 # final_df <- data.frame()
